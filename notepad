@@ -1,0 +1,175 @@
+import javafx.application.Application;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.geometry.Insets;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.stage.Stage;
+
+import java.sql.*;
+
+public class NotepadApp extends Application {
+
+    private static final String DB_URL  = "jdbc:mysql://localhost:3306/notepaddb";
+    private static final String DB_USER = "root";
+    private static final String DB_PASS = "";
+
+    // ── Note model ────────────────────────────────────────────────────────────
+    static class Note {
+        int id;
+        String title, content;
+        Note(int id, String title, String content) {
+            this.id = id; this.title = title; this.content = content;
+        }
+        @Override public String toString() { return title; }
+    }
+
+    // ── Database ──────────────────────────────────────────────────────────────
+    static void initDB() {
+        try (Connection c = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+             Statement s = c.createStatement()) {
+            s.execute("CREATE TABLE IF NOT EXISTS notes (" +
+                      "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                      "title VARCHAR(255) NOT NULL, " +
+                      "content TEXT)");
+        } catch (SQLException e) { e.printStackTrace(); }
+    }
+
+    static ObservableList<Note> loadAll() {
+        ObservableList<Note> list = FXCollections.observableArrayList();
+        try (Connection c = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+             ResultSet rs = c.createStatement().executeQuery(
+                     "SELECT id, title, content FROM notes ORDER BY id DESC")) {
+            while (rs.next())
+                list.add(new Note(rs.getInt("id"), rs.getString("title"), rs.getString("content")));
+        } catch (SQLException e) { e.printStackTrace(); }
+        return list;
+    }
+
+    static void save(Note note) {
+        if (note.id == 0) {
+            try (Connection c = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+                 PreparedStatement ps = c.prepareStatement(
+                         "INSERT INTO notes (title, content) VALUES (?,?)",
+                         Statement.RETURN_GENERATED_KEYS)) {
+                ps.setString(1, note.title);
+                ps.setString(2, note.content);
+                ps.executeUpdate();
+                try (ResultSet k = ps.getGeneratedKeys()) { if (k.next()) note.id = k.getInt(1); }
+            } catch (SQLException e) { e.printStackTrace(); }
+        } else {
+            try (Connection c = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+                 PreparedStatement ps = c.prepareStatement(
+                         "UPDATE notes SET title=?, content=? WHERE id=?")) {
+                ps.setString(1, note.title);
+                ps.setString(2, note.content);
+                ps.setInt(3, note.id);
+                ps.executeUpdate();
+            } catch (SQLException e) { e.printStackTrace(); }
+        }
+    }
+
+    static void delete(int id) {
+        try (Connection c = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+             PreparedStatement ps = c.prepareStatement("DELETE FROM notes WHERE id=?")) {
+            ps.setInt(1, id);
+            ps.executeUpdate();
+        } catch (SQLException e) { e.printStackTrace(); }
+    }
+
+    // ── UI ────────────────────────────────────────────────────────────────────
+    private ObservableList<Note> notes;
+    private ListView<Note> listView;
+    private TextField titleField;
+    private TextArea contentArea;
+    private Note current = null;
+
+    @Override
+    public void start(Stage stage) {
+        initDB();
+        notes = loadAll();
+
+        listView = new ListView<>(notes);
+        listView.setOnMouseClicked(e -> loadSelected());
+
+        Button btnNew  = new Button("New");
+        Button btnSave = new Button("Save");
+        Button btnDel  = new Button("Delete");
+
+        btnNew.setMaxWidth(Double.MAX_VALUE);
+        btnSave.setMaxWidth(Double.MAX_VALUE);
+        btnDel.setMaxWidth(Double.MAX_VALUE);
+
+        btnNew.setOnAction(e -> newNote());
+        btnSave.setOnAction(e -> saveCurrentNote());
+        btnDel.setOnAction(e -> deleteSelected());
+
+        VBox left = new VBox(6, btnNew, listView, btnSave, btnDel);
+        left.setPadding(new Insets(10));
+        left.setPrefWidth(200);
+        VBox.setVgrow(listView, Priority.ALWAYS);
+
+        titleField = new TextField();
+        titleField.setPromptText("Title");
+
+        contentArea = new TextArea();
+        contentArea.setPromptText("Write your note here...");
+        contentArea.setWrapText(true);
+
+        VBox right = new VBox(8, titleField, contentArea);
+        right.setPadding(new Insets(10));
+        VBox.setVgrow(contentArea, Priority.ALWAYS);
+
+        HBox root = new HBox(left, new Separator(), right);
+        HBox.setHgrow(right, Priority.ALWAYS);
+
+        stage.setScene(new Scene(root, 700, 480));
+        stage.setTitle("Notepad");
+        stage.show();
+    }
+
+    private void newNote() {
+        current = null;
+        titleField.clear();
+        contentArea.clear();
+        titleField.requestFocus();
+    }
+
+    private void loadSelected() {
+        Note n = listView.getSelectionModel().getSelectedItem();
+        if (n == null) return;
+        current = n;
+        titleField.setText(n.title);
+        contentArea.setText(n.content);
+    }
+
+    private void saveCurrentNote() {
+        String title   = titleField.getText().trim();
+        String content = contentArea.getText().trim();
+        if (title.isEmpty()) return;
+
+        if (current == null) {
+            current = new Note(0, title, content);
+            save(current);
+            notes.add(0, current);
+        } else {
+            current.title   = title;
+            current.content = content;
+            save(current);
+            int idx = notes.indexOf(current);
+            notes.set(idx, current);
+        }
+        listView.getSelectionModel().select(current);
+    }
+
+    private void deleteSelected() {
+        Note n = listView.getSelectionModel().getSelectedItem();
+        if (n == null) return;
+        delete(n.id);
+        notes.remove(n);
+        if (current == n) newNote();
+    }
+
+    public static void main(String[] args) { launch(args); }
+}
