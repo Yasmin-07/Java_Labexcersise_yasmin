@@ -1,0 +1,156 @@
+import javafx.application.Application;
+import javafx.geometry.Insets;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.stage.Stage;
+
+import java.util.*;
+
+public class PokerGame extends Application {
+
+    // ── Card, Deck, Player ────────────────────────────────────────────────────
+    static class Card {
+        String suit, rank;
+        int value;
+        Card(String suit, String rank, int value) {
+            this.suit = suit; this.rank = rank; this.value = value;
+        }
+        public String toString() { return rank + " of " + suit; }
+    }
+
+    static class Deck {
+        List<Card> cards = new ArrayList<>();
+        String[] suits = {"Hearts", "Diamonds", "Clubs", "Spades"};
+        String[] ranks = {"2","3","4","5","6","7","8","9","10","Jack","Queen","King","Ace"};
+
+        Deck() {
+            int value = 2;
+            for (String rank : ranks) {
+                for (String suit : suits)
+                    cards.add(new Card(suit, rank, value));
+                value++;
+            }
+        }
+        void shuffle() { Collections.shuffle(cards); }
+        Card draw()    { return cards.remove(0); }
+    }
+
+    static class Player {
+        String name;
+        List<Card> hand = new ArrayList<>();
+        Player(String name) { this.name = name; }
+        void draw(Deck deck) { hand.add(deck.draw()); }
+        int highestValue() {
+            return hand.stream().mapToInt(c -> c.value).max().orElse(0);
+        }
+    }
+
+    // ── UI ────────────────────────────────────────────────────────────────────
+    private TextArea p1Area, p2Area, resultArea;
+    private Button btnNext, btnDeal;
+    private Deck deck;
+    private Player p1, p2;
+    private int cardCount = 0;  // 0-4 = p1 drawing, 5-9 = p2 drawing
+
+    @Override
+    public void start(Stage stage) {
+        // Player 1 panel
+        p1Area = new TextArea();
+        p1Area.setEditable(false);
+        p1Area.setPromptText("Player 1 cards will appear here...");
+
+        // Player 2 panel
+        p2Area = new TextArea();
+        p2Area.setEditable(false);
+        p2Area.setPromptText("Player 2 cards will appear here...");
+
+        HBox hands = new HBox(10,
+                labeledBox("Player 1", p1Area),
+                labeledBox("Player 2", p2Area));
+        HBox.setHgrow(hands.getChildren().get(0), Priority.ALWAYS);
+        HBox.setHgrow(hands.getChildren().get(1), Priority.ALWAYS);
+
+        // Result area
+        resultArea = new TextArea();
+        resultArea.setEditable(false);
+        resultArea.setPrefHeight(60);
+
+        // Buttons
+        btnDeal = new Button("New Game");
+        btnNext = new Button("Draw Card");
+        btnNext.setDisable(true);
+
+        btnDeal.setOnAction(e -> newGame());
+        btnNext.setOnAction(e -> drawNext());
+
+        HBox buttons = new HBox(10, btnDeal, btnNext);
+        buttons.setPadding(new Insets(6, 0, 0, 0));
+
+        VBox root = new VBox(10, hands, resultArea, buttons);
+        root.setPadding(new Insets(12));
+
+        stage.setScene(new Scene(root, 520, 400));
+        stage.setTitle("Poker Game");
+        stage.show();
+    }
+
+    private VBox labeledBox(String label, TextArea area) {
+        VBox box = new VBox(4, new Label(label), area);
+        VBox.setVgrow(area, Priority.ALWAYS);
+        HBox.setHgrow(box, Priority.ALWAYS);
+        return box;
+    }
+
+    private void newGame() {
+        deck = new Deck();
+        deck.shuffle();
+        p1 = new Player("Player 1");
+        p2 = new Player("Player 2");
+        cardCount = 0;
+        p1Area.clear();
+        p2Area.clear();
+        resultArea.clear();
+        btnNext.setDisable(false);
+        btnNext.setText("Draw Card — Player 1 (1/5)");
+    }
+
+    private void drawNext() {
+        if (cardCount < 5) {
+            // Player 1 draws
+            p1.draw(deck);
+            Card c = p1.hand.get(p1.hand.size() - 1);
+            p1Area.appendText(c + "\n");
+            cardCount++;
+            if (cardCount < 5) {
+                btnNext.setText("Draw Card — Player 1 (" + (cardCount + 1) + "/5)");
+            } else {
+                btnNext.setText("Draw Card — Player 2 (1/5)");
+            }
+        } else if (cardCount < 10) {
+            // Player 2 draws
+            p2.draw(deck);
+            Card c = p2.hand.get(p2.hand.size() - 1);
+            p2Area.appendText(c + "\n");
+            cardCount++;
+            int p2Card = cardCount - 5;
+            if (cardCount < 10) {
+                btnNext.setText("Draw Card — Player 2 (" + (p2Card + 1) + "/5)");
+            } else {
+                // All cards drawn — show result
+                btnNext.setDisable(true);
+                showResult();
+            }
+        }
+    }
+
+    private void showResult() {
+        int v1 = p1.highestValue(), v2 = p2.highestValue();
+        if      (v1 > v2) resultArea.setText("Player 1 wins!");
+        else if (v2 > v1) resultArea.setText("Player 2 wins!");
+        else              resultArea.setText("It's a tie!");
+        btnNext.setText("Draw Card");
+    }
+
+    public static void main(String[] args) { launch(args); }
+}
