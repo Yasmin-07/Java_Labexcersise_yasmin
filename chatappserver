@@ -1,0 +1,98 @@
+import java.io.*;
+import java.net.*;
+import java.sql.*;
+import java.util.*;
+
+public class ChatServer {
+
+    private static final int PORT = 5000;
+    private static final String DB_URL  = "jdbc:mysql://localhost:3306/";
+    private static final String DB_NAME = "chatapp";
+    private static final String DB_USER = "root";
+    private static final String DB_PASS = "";
+
+    private static final List<PrintWriter> clients = new ArrayList<>();
+
+    static void initDB() {
+        try (Connection c = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+             Statement s = c.createStatement()) {
+            s.execute("CREATE DATABASE IF NOT EXISTS " + DB_NAME);
+            s.execute("USE " + DB_NAME);
+            s.execute("CREATE TABLE IF NOT EXISTS messages (" +
+                      "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                      "username VARCHAR(100), " +
+                      "message TEXT, " +
+                      "sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+            System.out.println("DB ready.");
+        } catch (SQLException e) { e.printStackTrace(); }
+    }
+
+    static void saveMessage(String username, String message) {
+        try (Connection c = DriverManager.getConnection(DB_URL + DB_NAME, DB_USER, DB_PASS);
+             PreparedStatement ps = c.prepareStatement(
+                     "INSERT INTO messages (username, message) VALUES (?, ?)")) {
+            ps.setString(1, username);
+            ps.setString(2, message);
+            ps.executeUpdate();
+        } catch (SQLException e) { e.printStackTrace(); }
+    }
+
+    static List<String> loadHistory() {
+        List<String> list = new ArrayList<>();
+        try (Connection c = DriverManager.getConnection(DB_URL + DB_NAME, DB_USER, DB_PASS);
+             ResultSet rs = c.createStatement().executeQuery(
+                     "SELECT username, message FROM messages ORDER BY id ASC LIMIT 50")) {
+            while (rs.next())
+                list.add("[" + rs.getString("username") + "]: " + rs.getString("message"));
+        } catch (SQLException e) { e.printStackTrace(); }
+        return list;
+    }
+
+    static synchronized void broadcast(String msg) {
+        for (PrintWriter pw : clients) pw.println(msg);
+    }
+
+    static class ClientHandler extends Thread {
+        private final Socket socket;
+        private PrintWriter out;
+        private String username;
+
+        ClientHandler(Socket socket) { this.socket = socket; }
+
+        @Override
+        public void run() {
+            try {
+                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                out = new PrintWriter(socket.getOutputStream(), true);
+
+                username = in.readLine();
+                System.out.println(username + " connected.");
+
+                for (String h : loadHistory()) out.println(h);
+                out.println("---");
+
+                synchronized (clients) { clients.add(out); }
+                broadcast("** " + username + " joined **");
+
+                String msg;
+                while ((msg = in.readLine()) != null) {
+                    saveMessage(username, msg);
+                    broadcast("[" + username + "]: " + msg);
+                }
+            } catch (IOException e) {
+                System.out.println(username + " disconnected.");
+            } finally {
+                synchronized (clients) { clients.remove(out); }
+                broadcast("** " + username + " left **");
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+    }
+
+    public static void main(String[] args) throws IOException {
+        initDB();
+        System.out.println("Server running on port " + PORT);
+        ServerSocket server = new ServerSocket(PORT);
+        while (true) new ClientHandler(server.accept()).start();
+    }
+}
