@@ -1,0 +1,88 @@
+import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.geometry.Insets;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.stage.Stage;
+
+import java.io.*;
+import java.net.*;
+
+public class ChatClient extends Application {
+
+    private static final String HOST = "localhost";
+    private static final int    PORT = 5000;
+
+    private PrintWriter out;
+    private TextArea chatArea;
+    private TextField inputField;
+    private String username;
+
+    @Override
+    public void start(Stage stage) {
+        // Ask for username
+        TextInputDialog dialog = new TextInputDialog();
+        dialog.setTitle("Chat");
+        dialog.setHeaderText(null);
+        dialog.setContentText("Enter your username:");
+        username = dialog.showAndWait().orElse("User");
+
+        // Chat area
+        chatArea = new TextArea();
+        chatArea.setEditable(false);
+        chatArea.setWrapText(true);
+
+        // Input
+        inputField = new TextField();
+        inputField.setPromptText("Type a message...");
+        inputField.setOnAction(e -> sendMessage());
+
+        Button btnSend = new Button("Send");
+        btnSend.setDefaultButton(true);
+        btnSend.setOnAction(e -> sendMessage());
+
+        HBox bottom = new HBox(6, inputField, btnSend);
+        HBox.setHgrow(inputField, Priority.ALWAYS);
+        bottom.setPadding(new Insets(8));
+
+        VBox root = new VBox(chatArea, bottom);
+        VBox.setVgrow(chatArea, Priority.ALWAYS);
+
+        stage.setScene(new Scene(root, 500, 400));
+        stage.setTitle("Chat — " + username);
+        stage.setOnCloseRequest(e -> System.exit(0));
+        stage.show();
+
+        connect();
+    }
+
+    private void connect() {
+        new Thread(() -> {
+            try {
+                Socket socket = new Socket(HOST, PORT);
+                out = new PrintWriter(socket.getOutputStream(), true);
+                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+
+                out.println(username);
+
+                String line;
+                while ((line = in.readLine()) != null) {
+                    final String msg = line;
+                    Platform.runLater(() -> chatArea.appendText(msg + "\n"));
+                }
+            } catch (IOException e) {
+                Platform.runLater(() -> chatArea.appendText("Cannot connect to server.\n"));
+            }
+        }).start();
+    }
+
+    private void sendMessage() {
+        String msg = inputField.getText().trim();
+        if (msg.isEmpty() || out == null) return;
+        out.println(msg);
+        inputField.clear();
+    }
+
+    public static void main(String[] args) { launch(args); }
+}
